@@ -40,6 +40,7 @@ import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Point;
+import android.graphics.Rect;
 import android.util.AttributeSet;
 import android.view.View;
 
@@ -54,16 +55,15 @@ public class MyCanvas extends View {
     private static final String TAG = MyCanvas.class.getSimpleName();
 
     private static final int DEG_MAX_VAL = 40;
-    private static final int MOVING_MAX_VAL = 900;
+    private static final int MOVING_MAX_VAL = 1000;
     private static final int MAX_NOISE = 60;
 
+    private int deg = 0, moving = 0;
+    private Rect rect = new Rect();
     private Bitmap bm;
     private Paint paint;
     private ValueAnimator degAnimator, moveAnimator;
-
-    private int deg = 0, moving = 0;
     private TimerTask timerTask;
-
     private Random random = new Random();
     private Point lastP = new Point(0, 500);
     private final List<Point> movingPointList = new ArrayList<>();
@@ -180,20 +180,22 @@ public class MyCanvas extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
+        rect.set(lastP.x, lastP.y, lastP.x + 50, lastP.y + 50);
+        canvas.drawRect(rect, paint);
+        canvas.drawLines(pts, paint);
+    }
+
+    private void draw3DBitmap(Canvas canvas) {
         Matrix mt = new Matrix();
         Camera camera = new Camera();
-
         camera.save();
         camera.rotateY(deg);
         camera.getMatrix(mt);
         mt.preTranslate(-250, -100);
         mt.postTranslate(250, 100);
         camera.restore();
-
         mt.postTranslate(lastP.x, lastP.y);
         canvas.drawBitmap(bm, mt, null);
-        canvas.drawLines(pts, paint);
-
     }
 
 }
