@@ -52,22 +52,24 @@ import java.util.TimerTask;
 public class MyCanvas extends View {
 
     private static final String TAG = MyCanvas.class.getSimpleName();
+
+    private static final int DEG_MAX_VAL = 40;
+    private static final int MOVING_MAX_VAL = 900;
+    private static final int MAX_NOISE = 60;
+
     private Bitmap bm;
     private Paint paint;
     private ValueAnimator degAnimator, moveAnimator;
 
     private int deg = 0, moving = 0;
-    private int animMaxVal = 40;
-    private Timer timer;
     private TimerTask timerTask;
 
     private Random random = new Random();
-    private int MAX_NOISE = 20;
     private Point lastP = new Point(0, 500);
     private final List<Point> movingPointList = new ArrayList<>();
     private float[] pts = new float[]{};
 
-    //gen noise in [0, 5]
+    //gen noise in [0, MAX_NOISE]
     private int noiseGenerate() {
         return random.nextInt(MAX_NOISE) - MAX_NOISE / 2;
     }
@@ -88,14 +90,14 @@ public class MyCanvas extends View {
         super(context, attrs, defStyleAttr, defStyleRes);
 
         bm = Bitmap.createScaledBitmap(
-                BitmapFactory.decodeResource(this.getResources(), R.drawable.nerd_eye)
-                , 500, 200, false);
+                BitmapFactory.decodeResource(this.getResources(), R.drawable.ic_square)
+                , 200, 200, false);
         paint = new Paint();
         paint.setColor(Color.RED);
         paint.setStyle(Paint.Style.FILL);
         paint.setStrokeWidth(10f);
 
-        degAnimator = ValueAnimator.ofInt(-animMaxVal, animMaxVal);
+        degAnimator = ValueAnimator.ofInt(-DEG_MAX_VAL, DEG_MAX_VAL);
         degAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             @Override
             public void onAnimationUpdate(ValueAnimator animation) {
@@ -106,8 +108,7 @@ public class MyCanvas extends View {
         degAnimator.setRepeatCount(ValueAnimator.INFINITE);
         degAnimator.setRepeatMode(ValueAnimator.REVERSE);
 
-        final int movingMaxVal = 450;
-        moveAnimator = ValueAnimator.ofInt(0, movingMaxVal);
+        moveAnimator = ValueAnimator.ofInt(0, MOVING_MAX_VAL);
         moveAnimator.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationRepeat(Animator animation) {
@@ -124,11 +125,11 @@ public class MyCanvas extends View {
             }
 
         });
-        moveAnimator.setDuration(2000);
+        moveAnimator.setDuration(3000);
         moveAnimator.setRepeatCount(ValueAnimator.INFINITE);
         moveAnimator.setRepeatMode(ValueAnimator.REVERSE);
 
-        timer = new Timer("timer", true);
+        Timer timer = new Timer("timer", true);
         timerTask = new TimerTask() {
             @Override
             public void run() {
@@ -137,18 +138,21 @@ public class MyCanvas extends View {
 
                 int x = moving + noise;
                 int y = 500 + noise;
-//                if (Math.abs(lastP.x - x) > 15 || Math.abs(lastP.y - y) > 15) {
-                lastP.x = x;
-                lastP.y = y;
+//                if (Math.abs(lastP.x - x) > MAX_NOISE || Math.abs(lastP.y - y) > MAX_NOISE) {
+                    lastP.x = x;
+                    lastP.y = y;
 //                }
 
                 synchronized (movingPointList) {
                     movingPointList.add(new Point(lastP.x, lastP.y));
-                    pts = new float[movingPointList.size() * 2];
-                    int i = 0;
-                    for (Point point : movingPointList) {
-                        pts[i++] = point.x;
-                        pts[i++] = point.y;
+                    pts = new float[movingPointList.size() * 4];
+                    for (int i = 0; i < movingPointList.size() - 1; i++) {
+                        Point point = movingPointList.get(i);
+                        Point pointNext = movingPointList.get(i + 1);
+                        pts[i * 4] = point.x;
+                        pts[i * 4 + 1] = point.y;
+                        pts[i * 4 + 2] = pointNext.x;
+                        pts[i * 4 + 3] = pointNext.y;
                     }
                 }
                 postInvalidate();
