@@ -40,8 +40,10 @@ import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Point;
-import android.graphics.Rect;
+import android.graphics.PointF;
+import android.graphics.RectF;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.View;
 
 import java.util.ArrayList;
@@ -59,15 +61,16 @@ public class MyCanvas extends View {
     private static final int MAX_NOISE = 60;
 
     private int deg = 0, moving = 0;
-    private Rect rect = new Rect();
+    private RectF rect = new RectF();
     private Bitmap bm;
     private Paint paint;
     private ValueAnimator degAnimator, moveAnimator;
-    private TimerTask timerTask;
+    private TimerTask renderTimerTask, generatePointTimerTask;
     private Random random = new Random();
     private Point lastP = new Point(0, 500);
-    private final List<Point> movingPointList = new ArrayList<>();
+    private final List<PointF> movingPointList = new ArrayList<>();
     private float[] pts = new float[]{};
+    private boolean initFrame = false;
 
     //gen noise in [0, MAX_NOISE]
     private int noiseGenerate() {
@@ -112,9 +115,9 @@ public class MyCanvas extends View {
         moveAnimator.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationRepeat(Animator animation) {
-                synchronized (movingPointList) {
-                    movingPointList.clear();
-                }
+//                synchronized (movingPointList) {
+//                    movingPointList.clear();
+//                }
             }
 
         });
@@ -129,43 +132,93 @@ public class MyCanvas extends View {
         moveAnimator.setRepeatCount(ValueAnimator.INFINITE);
         moveAnimator.setRepeatMode(ValueAnimator.REVERSE);
 
-        Timer timer = new Timer("timer", true);
-        timerTask = new TimerTask() {
+
+        ValueAnimator renderAnimator = ValueAnimator.ofInt(0, 22);
+        renderAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+                synchronized (pts) {
+                    if (pts != null && pts.length >= 24) {
+                        int pos = (int) animation.getAnimatedValue();
+                        rect.set(pts[pos], 500, pts[pos] + 50, 500 + 50);
+                        postInvalidate();
+                    }
+                }
+            }
+
+        });
+        renderAnimator.setDuration(1000 / 10);
+        renderAnimator.setRepeatCount(ValueAnimator.INFINITE);
+//        renderAnimator.setRepeatMode(ValueAnimator.REVERSE);
+        renderAnimator.start();
+
+        Timer renderTimer = new Timer("renderTimer", true);
+        Timer generatePointTimer = new Timer("generatePointTimer", true);
+        renderTimerTask = new TimerTask() {
             @Override
             public void run() {
+//                postInvalidate();
+            }
+        };
 
+        generatePointTimerTask = new TimerTask() {
+            @Override
+            public void run() {
                 int noise = noiseGenerate();
-
                 int x = moving + noise;
                 int y = 500 + noise;
                 if (Math.abs(lastP.x - x) > MAX_NOISE || Math.abs(lastP.y - y) > MAX_NOISE) {
                     lastP.x = x;
-                    lastP.y = y;
+                    lastP.y = 500;
                 }
 
                 synchronized (movingPointList) {
-                    movingPointList.add(new Point(lastP.x, lastP.y));
-                    pts = new float[movingPointList.size() * 4];
-                    for (int i = 0; i < movingPointList.size() - 1; i++) {
-                        Point point = movingPointList.get(i);
-                        Point pointNext = movingPointList.get(i + 1);
-                        pts[i * 4] = point.x;
-                        pts[i * 4 + 1] = point.y;
-                        pts[i * 4 + 2] = pointNext.x;
-                        pts[i * 4 + 3] = pointNext.y;
+                    movingPointList.add(new PointF(lastP.x, lastP.y));
+
+                    //Calculate position
+                    int sectionLength = 4;
+                    int sectionExpendLength = sectionLength * 3;
+                    int ptsSkip = 2;
+                    if (movingPointList.size() >= sectionLength) {
+                        pts = new float[sectionExpendLength * ptsSkip];
+
+                        final List<PointF> subMovingList = new ArrayList<>();
+                        for (int i = 0; i < sectionLength; i++) {
+                            subMovingList.add(movingPointList.get(i));
+                        }
+
+                        for (int i = 0; i < sectionExpendLength; i++) {
+                            PointF point = getQuadraticBezier(subMovingList, i * 1f / sectionExpendLength);
+//                            PointF pointNext = getQuadraticBezier(subMovingList, (i + 1) * 1f / sectionExpendLength);
+                            pts[i * ptsSkip] = point.x;
+                            pts[i * ptsSkip + 1] = point.y;
+//                            pts[i * ptsSkip + 2] = pointNext.x;
+//                            pts[i * ptsSkip + 3] = pointNext.y;
+                        }
+                        if (movingPointList.size() > sectionLength * 2) {
+                            int i = 0;
+                            while (i++ < sectionLength) {
+                                movingPointList.remove(0);
+                            }
+                        }
+
+                        Log.e(TAG, "run: pts length = " + pts.length + " movingPointList.length = " + movingPointList.size());
                     }
+
                 }
-                postInvalidate();
             }
         };
-        timer.scheduleAtFixedRate(timerTask, 0, 1000 / 30);
+        renderTimer.scheduleAtFixedRate(renderTimerTask, 0, 1000 / 10);
+        generatePointTimer.scheduleAtFixedRate(generatePointTimerTask, 0, 1000 / 20);
 
     }
 
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        timerTask.run();
+        renderTimerTask.run();
+        generatePointTimerTask.run();
+
 //        degAnimator.start();
         moveAnimator.start();
     }
@@ -174,15 +227,35 @@ public class MyCanvas extends View {
     protected void onDetachedFromWindow() {
         degAnimator.cancel();
         moveAnimator.cancel();
-        timerTask.cancel();
+
+        renderTimerTask.cancel();
+        generatePointTimerTask.cancel();
         super.onDetachedFromWindow();
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
-        rect.set(lastP.x, lastP.y, lastP.x + 50, lastP.y + 50);
         canvas.drawRect(rect, paint);
-        canvas.drawLines(pts, paint);
+        canvas.drawPoints(pts, paint);
+    }
+
+    /**
+     * Let B(P0 P1 ... Pn) denote the Bezier curve dtermined by any selection of points P0, P1, ..., Pn. Then to start:
+     * B(P0[t]) = P0, and
+     * B(t) = B(P0 P1 ... Pn) (t) = (1 - t) B(P0 P1 .. Pn-1) (t) + tB(P1 P2 ... Pn) (t)
+     *
+     * @param t where t is timer animation with float range [0..1]
+     */
+    private PointF getQuadraticBezier(List<PointF> offsetList, double t) {
+        return getQuadraticBezier2(offsetList, t, 0, offsetList.size() - 1);
+    }
+
+    private PointF getQuadraticBezier2(List<PointF> offsetList, double t, int i, int j) {
+        if (i == j) return offsetList.get(i);
+
+        PointF b0 = getQuadraticBezier2(offsetList, t, i, j - 1);
+        PointF b1 = getQuadraticBezier2(offsetList, t, i + 1, j);
+        return new PointF((float) ((1f - t) * b0.x + t * b1.x), (float) ((1f - t) * b0.y + t * b1.y));
     }
 
     private void draw3DBitmap(Canvas canvas) {
