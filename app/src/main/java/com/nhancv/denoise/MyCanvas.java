@@ -138,10 +138,10 @@ public class MyCanvas extends View {
 
                 int x = moving + noise;
                 int y = 500 + noise;
-//                if (Math.abs(lastP.x - x) > MAX_NOISE || Math.abs(lastP.y - y) > MAX_NOISE) {
+                if (Math.abs(lastP.x - x) > MAX_NOISE || Math.abs(lastP.y - y) > MAX_NOISE) {
                     lastP.x = x;
                     lastP.y = y;
-//                }
+                }
 
                 synchronized (movingPointList) {
                     movingPointList.add(new Point(lastP.x, lastP.y));
