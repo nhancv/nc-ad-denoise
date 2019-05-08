@@ -65,6 +65,7 @@ public class MyCanvas extends View {
 
     //Smooth line
     private final List<PointF> smoothList = new ArrayList<>();
+    private KalmanFilter kalmanFilterX = new KalmanFilter(1f, 1f, 0.001f);
     private KalmanFilter kalmanFilterY = new KalmanFilter(1f, 1f, 0.001f);
 
     //gen noise in [0, MAX_NOISE]
@@ -127,10 +128,10 @@ public class MyCanvas extends View {
             @Override
             public void run() {
                 int noise = noiseGenerate();
-                int x = moving;
+                int x = moving + noise;
                 int y = 800 + noise;
                 synchronized (smoothList) {
-                    smoothList.add(new PointF(x, kalmanFilterY.updateEstimate(y)));
+                    smoothList.add(new PointF(kalmanFilterX.updateEstimate(x), kalmanFilterY.updateEstimate(y)));
                 }
                 synchronized (noiseList) {
                     noiseList.add(new PointF(x, y - 300));
