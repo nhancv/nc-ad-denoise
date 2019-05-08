@@ -33,14 +33,12 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Camera;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
-import android.graphics.Point;
-import android.graphics.Rect;
+import android.graphics.PointF;
 import android.util.AttributeSet;
 import android.view.View;
 
@@ -54,20 +52,20 @@ public class MyCanvas extends View {
 
     private static final String TAG = MyCanvas.class.getSimpleName();
 
-    private static final int DEG_MAX_VAL = 40;
     private static final int MOVING_MAX_VAL = 1000;
     private static final int MAX_NOISE = 60;
-
-    private int deg = 0, moving = 0;
-    private Rect rect = new Rect();
-    private Bitmap bm;
-    private Paint paint;
-    private ValueAnimator degAnimator, moveAnimator;
-    private TimerTask timerTask;
+    private int moving = 0;
+    private Paint paintRed, paintBlue, paintBlack;
     private Random random = new Random();
-    private Point lastP = new Point(0, 500);
-    private final List<Point> movingPointList = new ArrayList<>();
-    private float[] pts = new float[]{};
+    private TimerTask generatePointTimerTask;
+    private ValueAnimator moveAnimator;
+
+    //Noise line
+    private final List<PointF> noiseList = new ArrayList<>();
+
+    //Smooth line
+    private final List<PointF> smoothList = new ArrayList<>();
+    private KalmanFilter kalmanFilterY = new KalmanFilter(1f, 1f, 0.001f);
 
     //gen noise in [0, MAX_NOISE]
     private int noiseGenerate() {
@@ -88,35 +86,30 @@ public class MyCanvas extends View {
 
     public MyCanvas(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
-
-        bm = Bitmap.createScaledBitmap(
-                BitmapFactory.decodeResource(this.getResources(), R.drawable.ic_square)
-                , 200, 200, false);
-        paint = new Paint();
-        paint.setColor(Color.RED);
-        paint.setStyle(Paint.Style.FILL);
-        paint.setStrokeWidth(10f);
-
-        degAnimator = ValueAnimator.ofInt(-DEG_MAX_VAL, DEG_MAX_VAL);
-        degAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-            @Override
-            public void onAnimationUpdate(ValueAnimator animation) {
-                deg = (int) animation.getAnimatedValue();
-            }
-        });
-        degAnimator.setDuration(2000);
-        degAnimator.setRepeatCount(ValueAnimator.INFINITE);
-        degAnimator.setRepeatMode(ValueAnimator.REVERSE);
+        paintRed = new Paint();
+        paintRed.setColor(Color.RED);
+        paintRed.setStyle(Paint.Style.FILL);
+        paintRed.setStrokeWidth(50f);
+        paintBlue = new Paint();
+        paintBlue.setColor(Color.BLUE);
+        paintBlue.setStyle(Paint.Style.FILL);
+        paintBlue.setStrokeWidth(10f);
+        paintBlack = new Paint();
+        paintBlack.setColor(Color.BLACK);
+        paintBlack.setStyle(Paint.Style.FILL);
+        paintBlack.setStrokeWidth(5f);
 
         moveAnimator = ValueAnimator.ofInt(0, MOVING_MAX_VAL);
         moveAnimator.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationRepeat(Animator animation) {
-                synchronized (movingPointList) {
-                    movingPointList.clear();
+                synchronized (noiseList) {
+                    noiseList.clear();
+                }
+                synchronized (smoothList) {
+                    smoothList.clear();
                 }
             }
-
         });
         moveAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             @Override
@@ -129,63 +122,63 @@ public class MyCanvas extends View {
         moveAnimator.setRepeatCount(ValueAnimator.INFINITE);
         moveAnimator.setRepeatMode(ValueAnimator.REVERSE);
 
-        Timer timer = new Timer("timer", true);
-        timerTask = new TimerTask() {
+        Timer generatePointTimer = new Timer("generatePointTimer", true);
+        generatePointTimerTask = new TimerTask() {
             @Override
             public void run() {
-
                 int noise = noiseGenerate();
-
-                int x = moving + noise;
-                int y = 500 + noise;
-                if (Math.abs(lastP.x - x) > MAX_NOISE || Math.abs(lastP.y - y) > MAX_NOISE) {
-                    lastP.x = x;
-                    lastP.y = y;
+                int x = moving;
+                int y = 800 + noise;
+                synchronized (smoothList) {
+                    smoothList.add(new PointF(x, kalmanFilterY.updateEstimate(y)));
                 }
-
-                synchronized (movingPointList) {
-                    movingPointList.add(new Point(lastP.x, lastP.y));
-                    pts = new float[movingPointList.size() * 4];
-                    for (int i = 0; i < movingPointList.size() - 1; i++) {
-                        Point point = movingPointList.get(i);
-                        Point pointNext = movingPointList.get(i + 1);
-                        pts[i * 4] = point.x;
-                        pts[i * 4 + 1] = point.y;
-                        pts[i * 4 + 2] = pointNext.x;
-                        pts[i * 4 + 3] = pointNext.y;
-                    }
+                synchronized (noiseList) {
+                    noiseList.add(new PointF(x, y - 300));
                 }
                 postInvalidate();
             }
         };
-        timer.scheduleAtFixedRate(timerTask, 0, 1000 / 30);
+        generatePointTimer.scheduleAtFixedRate(generatePointTimerTask, 0, 1000 / 50);
 
     }
 
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        timerTask.run();
-//        degAnimator.start();
+        generatePointTimerTask.run();
         moveAnimator.start();
     }
 
     @Override
     protected void onDetachedFromWindow() {
-        degAnimator.cancel();
         moveAnimator.cancel();
-        timerTask.cancel();
+        generatePointTimerTask.cancel();
         super.onDetachedFromWindow();
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
-        rect.set(lastP.x, lastP.y, lastP.x + 50, lastP.y + 50);
-        canvas.drawRect(rect, paint);
-        canvas.drawLines(pts, paint);
+        synchronized (noiseList) {
+            if (noiseList.size() > 0) {
+                PointF lastP = noiseList.get(noiseList.size() - 1);
+                canvas.drawPoint(lastP.x, lastP.y, paintRed);
+                for (PointF pointF : noiseList) {
+                    canvas.drawPoint(pointF.x, pointF.y, paintBlue);
+                }
+            }
+        }
+        synchronized (smoothList) {
+            if (smoothList.size() > 0) {
+                PointF lastP = smoothList.get(smoothList.size() - 1);
+                canvas.drawPoint(lastP.x, lastP.y, paintRed);
+                for (PointF pointF : smoothList) {
+                    canvas.drawPoint(pointF.x, pointF.y, paintBlue);
+                }
+            }
+        }
     }
 
-    private void draw3DBitmap(Canvas canvas) {
+    private void draw3DBitmap(Canvas canvas, Bitmap bm, PointF pointF, int deg) {
         Matrix mt = new Matrix();
         Camera camera = new Camera();
         camera.save();
@@ -194,7 +187,7 @@ public class MyCanvas extends View {
         mt.preTranslate(-250, -100);
         mt.postTranslate(250, 100);
         camera.restore();
-        mt.postTranslate(lastP.x, lastP.y);
+        mt.postTranslate(pointF.x, pointF.y);
         canvas.drawBitmap(bm, mt, null);
     }
 
